@@ -1,0 +1,31 @@
+name: Trace LastWave playback path
+
+on:
+  push:
+    paths:
+      - ".github/workflows/trace-playback.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect stream resolution and playback responses
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat bundle/source-00.b64 bundle/source-01a.b64 bundle/source-01b.b64 bundle/source-01c1.b64 bundle/source-01c2a.b64 bundle/source-01c2b.b64 bundle/source-02.b64 bundle/source-03.b64 bundle/source-04-*.b64 bundle/source-05-*.b64 bundle/source-06-*.b64 | base64 -d > /tmp/hub-source.tar.gz
+          mkdir -p /tmp/hub-source
+          tar -xzf /tmp/hub-source.tar.gz -C /tmp/hub-source
+          echo "===== package metadata ====="
+          find /tmp/hub-source -maxdepth 2 -type f ! -path '*/node_modules/*' -print | sort | head -100
+          for f in src/addon/client.js src/addon/player-routes.js src/addon/protocol.js src/server.js; do
+            echo "===== $f ====="
+            sed -n '1,420p' "/tmp/hub-source/$f"
+          done
+          echo "===== preview and stream references ====="
+          grep -R -n -Ei "preview|stream|duration|mp3|audioUrl|audio_url|playback|manifest" /tmp/hub-source/src --include='*.js' | head -n 300 || true
