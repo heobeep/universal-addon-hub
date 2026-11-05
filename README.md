@@ -2,23 +2,29 @@
 
 One place to manage music add-on links and their expiry reminders.
 
-## Deploy on Render
+## Render Free deployment
 
-1. Open the Render Blueprint link:
-   https://dashboard.render.com/blueprint/new?repo=https://github.com/heobeep/universal-addon-hub
-2. Choose **Arnav's workspace**.
-3. Review the service and permanent-storage price shown by Render before applying.
-4. Fill the required values in Render's private environment-variable form. Do not put bot tokens or encryption keys in GitHub.
-5. Apply the Blueprint. Render will build the source bundle in this repository and start the app.
+This repository is configured for a **free Render web service** in Singapore.
 
-The service uses a permanent disk at `/var/data` so saved add-on links, settings and bot state survive restarts.
+The free service has an ephemeral filesystem. Data saved by the app can disappear when Render restarts, sleeps, or redeploys it. Therefore this free deployment is suitable for a preview/test only until a durable free data store is connected. Do not rely on it as the only copy of important add-on links or expiry records.
+
+## Deploy
+
+1. Connect this repository to Render.
+2. Choose Arnav's workspace and Singapore.
+3. Confirm the service plan says **Free** and there is no disk or paid database.
+4. Set the required secrets in Render's private environment form. Never put bot tokens, access codes, session secrets, or encryption keys in GitHub.
+5. After deployment, check `/healthz`.
+
+Build command reconstructs the bundled application source from `bundle/*.b64` and installs dependencies. Start command is `npm start`.
 
 ## Important
 
-- This repository is currently **public**.
-- Never commit `.env`, bot tokens, access codes, session secrets or encryption keys.
-- The deployment must be checked at `/healthz` after Render finishes building.
-- The Hub's package checks and link-management features do not by themselves mean every Mornye, BitChord, Eclipse or LastWave provider is already playable through every app. Provider compatibility must be tested against the actual app and add-on.
+- This repository is currently **public**. Do not commit private user data or secrets.
+- Render Free web services can sleep after 15 minutes of inactivity and may take about a minute to wake.
+- The Telegram bot needs its own bot token and owner ID before notifications can be active.
+- Package inspection and link management do not prove every Mornye, BitChord, Eclipse, or LastWave provider can play. Each provider must be tested in the target app.
+- The app's local data folder is ephemeral on Render Free. A durable external database/store must be connected before treating expiry reminders as dependable.
 
 ## Local run
 
@@ -28,5 +34,3 @@ Use Node.js 22 or later.
 npm install
 npm start
 ```
-
-See `START-HERE.md` for the simple project walkthrough.
