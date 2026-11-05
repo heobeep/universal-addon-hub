@@ -2,20 +2,16 @@ services:
   - type: web
     name: universal-addon-hub
     runtime: node
-    plan: starter
+    plan: free
     region: singapore
     buildCommand: 'cat bundle/source-00.b64 bundle/source-01a.b64 bundle/source-01b.b64 bundle/source-01c1.b64 bundle/source-01c2a.b64 bundle/source-01c2b.b64 bundle/source-02.b64 bundle/source-03.b64 bundle/source-04-*.b64 bundle/source-05-*.b64 bundle/source-06-*.b64 | base64 -d > /tmp/hub-source.tar.gz && tar -xzf /tmp/hub-source.tar.gz -C . && npm install'
     startCommand: npm start
     healthCheckPath: /healthz
-    disk:
-      name: addon-hub-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
       - key: DATA_DIR
-        value: /var/data
+        value: /tmp/universal-addon-hub-data
       - key: PUBLIC_BASE_URL
         sync: false
       - key: MINI_APP_URL
