@@ -25,6 +25,7 @@ Build command reconstructs the bundled application source from `bundle/*.b64` an
 - The Telegram bot needs its own bot token and owner ID before notifications can be active.
 - Package inspection and link management do not prove every Mornye, BitChord, Eclipse, or LastWave provider can play. Each provider must be tested in the target app.
 - The app's local data folder is ephemeral on Render Free. A durable external database/store must be connected before treating expiry reminders as dependable.
+- Addon flags are stored as SQLite-safe integers and converted back to booleans when read by the app.
 
 ## Local run
 
