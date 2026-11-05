@@ -1,4 +1,4 @@
-name: Inspect bundled source
+name: Repair SQLite addon booleans
 
 on:
   push:
@@ -7,23 +7,103 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  inspect:
+  repair:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Unpack the deployed source and print database code
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Unpack and repair the application source
         shell: bash
         run: |
           set -euo pipefail
           cat bundle/source-00.b64 bundle/source-01a.b64 bundle/source-01b.b64 bundle/source-01c1.b64 bundle/source-01c2a.b64 bundle/source-01c2b.b64 bundle/source-02.b64 bundle/source-03.b64 bundle/source-04-*.b64 bundle/source-05-*.b64 bundle/source-06-*.b64 | base64 -d > /tmp/hub-source.tar.gz
           mkdir -p /tmp/hub-source
           tar -xzf /tmp/hub-source.tar.gz -C /tmp/hub-source
-          echo "===== SOURCE FILES ====="
-          find /tmp/hub-source/src -maxdepth 3 -type f -print | sort
-          echo "===== STORE MODULE ====="
-          if [ -f /tmp/hub-source/src/store.js ]; then sed -n '1,360p' /tmp/hub-source/src/store.js; fi
-          echo "===== DATABASE WRITE CALLS ====="
-          grep -R -n -E "prepare\\(|\\.run\\(|INSERT INTO|UPDATE .* SET|save[A-Z].*(Addon|Source|Extension)" /tmp/hub-source/src --include='*.js' | head -n 220 || true
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("/tmp/hub-source/src/store.js")
+          source = path.read_text()
+          old_enabled = "enabled: data.enabled === undefined ? (existing?.enabled ?? true) : Boolean(data.enabled),"
+          new_enabled = "enabled: Number(data.enabled === undefined ? (existing?.enabled ?? true) : Boolean(data.enabled)),"
+          old_trial = "is_trial: data.isTrial === undefined ? (existing?.isTrial ?? false) : Boolean(data.isTrial),"
+          new_trial = "is_trial: Number(data.isTrial === undefined ? (existing?.isTrial ?? false) : Boolean(data.isTrial)),"
+          if source.count(old_enabled) != 1 or source.count(old_trial) != 1:
+              raise SystemExit("Expected addon boolean fields were not found exactly once; refusing to patch.")
+          source = source.replace(old_enabled, new_enabled).replace(old_trial, new_trial)
+          path.write_text(source)
+          print("Patched enabled and is_trial to SQLite-safe 1/0 values.")
+          PY
+          cd /tmp/hub-source
+          npm install --no-audit --no-fund
+          rm -rf /tmp/hub-sqlite-test
+          DATA_DIR=/tmp/hub-sqlite-test DATA_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          const { saveAddon, db } = await import('./src/store.js');
+          const owner = 'sqlite-regression-test';
+          const created = saveAddon(owner, {
+            name: 'Lastwave Private',
+            adapter: 'lastwave',
+            config: { manifestUrl: 'https://example.test/manifest.json' },
+            enabled: true,
+            isTrial: false,
+            priority: 0
+          });
+          let raw = db.prepare('SELECT enabled, is_trial FROM addons WHERE id=?').get(created.id);
+          assert.equal(raw.enabled, 1);
+          assert.equal(raw.is_trial, 0);
+          const updated = saveAddon(owner, {
+            id: created.id,
+            name: 'Lastwave Private',
+            adapter: 'lastwave',
+            config: { manifestUrl: 'https://example.test/manifest.json' },
+            enabled: false,
+            isTrial: true,
+            priority: 0
+          });
+          raw = db.prepare('SELECT enabled, is_trial FROM addons WHERE id=?').get(created.id);
+          assert.equal(raw.enabled, 0);
+          assert.equal(raw.is_trial, 1);
+          assert.equal(updated.enabled, false);
+          assert.equal(updated.isTrial, true);
+          db.close();
+          console.log('PASS: create/update addon saves booleans as SQLite integers and reads them back correctly.');
+          NODE
+          cd "$GITHUB_WORKSPACE"
+          tar -czf /tmp/hub-source-patched.tar.gz -C /tmp/hub-source .
+          base64 -w0 /tmp/hub-source-patched.tar.gz > /tmp/hub-source-patched.b64
+          python3 - <<'PY'
+          from pathlib import Path
+          import math
+          bundle = Path("bundle")
+          payload = Path("/tmp/hub-source-patched.b64").read_text()
+          layout = [
+              ("source-00.b64", 15000), ("source-01a.b64", 5000),
+              ("source-01b.b64", 5000), ("source-01c1.b64", 2500),
+              ("source-01c2a.b64", 2000), ("source-01c2b.b64", 500),
+              ("source-02.b64", 15000), ("source-03.b64", 15000),
+          ]
+          for old in bundle.glob("source-*.b64"):
+              old.unlink()
+          pos = 0
+          for name, size in layout:
+              (bundle / name).write_text(payload[pos:pos+size])
+              pos += size
+          remainder = payload[pos:]
+          cuts = [len(remainder)//3, (2*len(remainder))//3]
+          groups = [remainder[:cuts[0]], remainder[cuts[0]:cuts[1]], remainder[cuts[1]:]]
+          for group, data in zip(("04", "05", "06"), groups):
+              for index, start in enumerate(range(0, len(data), 1000)):
+                  (bundle / f"source-{group}-{index:04d}.b64").write_text(data[start:start+1000])
+          print(f"Repacked {len(payload)} base64 characters into {len(list(bundle.glob('source-*.b64')))} ordered chunks.")
+          PY
+          rm .github/workflows/inspect-source.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A bundle .github/workflows/inspect-source.yml
+          git commit -m "Fix SQLite addon boolean storage"
+          git push
